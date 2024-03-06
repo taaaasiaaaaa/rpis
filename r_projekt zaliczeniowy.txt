@@ -1,0 +1,339 @@
+#####PROJEKT R #####
+getwd()
+# install.packages("Hmisc")
+library(Hmisc)
+# install.packages("dplyr")
+library(dplyr)
+# install.packages("ggpubr")
+library(ggpubr)
+# install.packages("car")
+library(car)
+# install.packages("dunn.test")
+library(dunn.test)
+# install.packages("FSA")
+library(FSA)
+# install.packages("data.table")
+library(data.table)
+# install.packages("purrr")
+library(purrr)
+# install.packages("gridExtra")
+library("gridExtra")
+# install.packages("rlang")
+library("rlang")
+#install.packages("GmAMisc")
+library("GmAMisc")
+
+#1. Przygotowanie danych wejściowych przez usunięcie braków danych. Zaraportowanie wszystkich wprowadzonych zmian. Dodatkowo zaraportowanie informacji o wartościach odstających dla wybranych parametrów
+
+args <- commandArgs(trailingOnly = TRUE)
+
+
+
+
+pdf("C:/Users/Dell/Documents/rpis_michalkiewicz/podpunkt_1.pdf")
+dane <- read.csv2(file = args[1], sep = ";")
+#sink("C:/Users/Dell/Documents/rpis_michalkiewicz/wyniki.txt")
+par(mfrow=c(1, 1))
+
+#sprawdzanie brakujących danych
+
+ile_brakow <- sum(is.na(dane))
+cat("\n w danych brakuje: ", ile_brakow, " wartosci \n")
+
+cat("\n liczba brakujacych danych dla kazdej kolumny: ")
+apply(is.na(dane), 2, sum) #(x-tablica, margin-2;kolumny, fun-jaka funkcja)
+
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[1:nrow(dane), i])){
+   dane[is.na(dane[ ,i]), i] <- mean(dane[ ,i], na.rm = TRUE)
+  } #oblicza srednia z pominieciem na
+}
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[ ,i])){
+  boxplot(dane[ ,i] ~ dane[ ,1], data=dane,
+          xlab="group",
+          ylab=colnames(dane)[i],
+          outcol="blue")
+  }
+}
+dev.off()
+
+#2. Wykonanie charakterystyk dla badanych grup, zapisanie wyników w czytelnej formie (polecana struktura tabelaryczna).
+
+pdf("C:/Users/Dell/Documents/rpis_michalkiewicz/podpunkt_2.pdf")
+par(mfrow=c(1,1))
+
+for(x in 1:ncol(dane)){
+  if(is.numeric(dane[ ,x])){
+    i <- colnames(dane)[x]
+    ta_belka <- group_by(dane, dane[,1]) %>%
+      summarise( #do podsumowania wzgledem grup
+        count = n(), #The number of observations in the current group
+        mean = format(round(mean(dane[ ,i], na.rm = TRUE),2), nsmall = 2),
+        sd = format(round(sd(dane[ ,i],na.rm = TRUE),2), nsmall = 2), #sd-odchylenie standardowe
+        median = format(round(median(dane[ ,i],na.rm = TRUE),2), nsmall = 2),
+    )
+    plot.new()
+    grid.table(ta_belka)
+  }
+}
+
+
+dev.off()
+
+#3. Wykonanie analizy porównawczej pomiędzy grupami, określenie czy istnieją istotne statystycznie różnice. Jeśli
+#istnieją istotne statystyczne różnice pomiędzy grupami to zaraportowanie pomiędzy którymi grupami występują i 
+#jak istotne są to różnice.
+
+obrona3 <- function(p_value){
+  if(p_value > 0.05){
+    return("ns")
+  } else if(p_value <= 0.05 & p_value > 0.01){
+    return("*")
+  } else if(p_value <= 0.01 & p_value > 0.001){
+    return("**")
+  } else if(p_value <= 0.001 & p_value > 0.0001){
+    return("***")
+  } else {
+    return("****")
+  }
+}
+
+shapiro_do_pvalue <- list()
+levene_do_pvalue <- list()
+
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[, i])){
+    var <- parse_expr(colnames(dane[i]))
+    pvalue_shappiro <- group_by(dane, dane[, 1]) %>%
+      summarise(
+        statistic = shapiro.test(eval(var))$statistic,
+        p.value = shapiro.test(eval(var))$p.value
+      )
+    shapiro_do_pvalue[[colnames(dane[i])]] <- pvalue_shappiro$p.value
+  }
+}
+
+print(shapiro_do_pvalue)
+
+#Shapiro plots -na rozklad normalny
+#shapiro - Jeśli wartość p-value > 0.05 oznacza to, że rozkład danych nie różni się znacząco od rozkładu normalnego (możemy
+#założyć normalność danych).
+
+#levene-Jeśli wartość p-value > 0.05 oznacza to, że dane są zgodne z założeniem o jednorodności wariancji (możemy założyć
+#homogeniczność danych).
+
+pdf("C:/Users/Dell/Documents/rpis_michalkiewicz/podpunkt_3h.pdf")
+par(mfrow=c(1,1))
+
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[, i])){
+    varx <- parse_expr(colnames(dane[i]))
+    var2 <- parse_expr(colnames(dane[1]))
+    pvalue_shappirox <- group_by(dane, dane[, 1]) %>%
+      summarise(
+        statistic = shapiro.test(eval(varx))$statistic,
+        p.value = shapiro.test(eval(varx))$p.value
+      )
+    plot.new()
+    grid.table(pvalue_shappirox)
+    
+    #wykresy gestosci
+    
+    x<-ggplot(dane, aes(x=eval(varx), fill=eval(var2))) +
+      geom_density(alpha = 0.4) +
+      labs(title = paste("Density plot for", colnames(dane[i]),sep = " "))+
+      xlab(colnames(dane[i]))
+    
+    print(x)
+  }
+}
+dev.off()
+
+
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[, i])){
+    var <- parse_expr(colnames(dane[i]))
+    var2 <- parse_expr(colnames(dane[1]))
+    print(leveneTest(eval(var) ~ eval(var2), data = dane))
+    levene_do_pvalue[[colnames(dane[i])]] <- leveneTest(eval(var)~eval(var2), data = dane)$"Pr(>F)"[1]
+  }
+}
+
+#Testy >2
+#gdy wiecej niz 2 to trzeba okreslic pomiedzy ktorymi grupami wyst roznice
+#do tego testy post hoc.
+#sprawdzenie zgodnosci(zgodna z rozkladem czy homogeniczna)
+#>2gr
+#kruskal gdy zgodne z normalnym ale niejednorodne(posthoc dunn)
+#anova gdy zgodne i jednorodne (posthoc tukey)
+#2gr
+#tstudent gdy zgodny z normalnym i jednorodne
+#welsha gdy zgodne z rozkladem i niejednorodne
+#wilcoxona gdy niezgodne z normalnym 
+
+group_names <- unique(dane[[1]])
+pdf("C:/Users/Dell/Documents/rpis_michalkiewicz/podpunkt_4obrona.pdf")
+par(mfrow=c(1,1))
+for(i in 1:ncol(dane)){
+  if(is.numeric(dane[, i])){
+    
+    cat("Parametr:", colnames(dane[i]))
+    var <- parse_expr(colnames(dane[i]))
+    var2 <- parse_expr(colnames(dane[1]))
+    
+    nazwa_kolumny <- colnames(dane)[i]
+    rozklad_norm_zg <- ifelse(all(shapiro_do_pvalue[[nazwa_kolumny]]>0.05),TRUE,FALSE)
+    homo_zg <- ifelse(levene_do_pvalue[[nazwa_kolumny]]>0.05,TRUE,FALSE)
+    
+    if(length(group_names)>2){
+    if(rozklad_norm_zg && homo_zg== TRUE){
+      #test anova
+      print("test anova\n")
+      aov(eval(var) ~eval(var2), data = dane)
+      summary(aov(eval(var) ~eval(var2), data = dane))
+      pvalueAOV <- summary(aov(eval(var) ~eval(var2), data = dane))[[1]][["Pr(>F)"]][[1]]
+      
+     #obrona3 cat("P-value:",pvalueAOV," ISTOTNOSC: ",obrona3(pvalueAOV),"\n")
+     # cat("\n")
+      
+      if(pvalueAOV < 0.05){
+        cat(pvalueAOV, "<0.05 - sa roznice pomiedzy grupami\n")
+        cat('Test post hoc Tukeya\n')
+        print(TukeyHSD(aov(eval(var) ~ eval(var2), data = dane)))
+       #obrona4
+        plot(TukeyHSD(aov(eval(var) ~eval(var2), data = dane), conf.level = .95))
+        
+        }else{
+        cat(pvalueAOV, ">0.05 - nie ma roznic miedzy grupami\n")
+      }
+    }
+    else{
+      #test kruskala
+      
+      print("test kruskala\n")
+      print(kruskal.test(eval(var) ~eval(var2), data = dane))
+      pvalueKruskal <- kruskal.test(eval(var) ~eval(var2), data = dane)$p.value
+      #obrona3
+      cat("P-value:", pvalueKruskal," ISTOTNOSC:",obrona3(pvalueKruskal),"\n")
+      cat("\n")
+      #tu wszystkie
+      #kwPlot(
+      #  x=dane[,i],
+       # y=dane[,1],
+        #strip = TRUE,
+        #notch = TRUE,
+        #omm = FALSE,
+        #outl = TRUE,
+        #posthoc = TRUE,
+        #adjust = "bonferroni"
+      #)
+      if(pvalueKruskal < 0.05){
+        cat(pvalueKruskal, "<0.05 - sa roznice miedzy grupami\n")
+        cat('Test post hoc Dunna\n')
+        dunn_test <- dunnTest(as.numeric(dane[,i]),dane[,1])
+        print(dunn_test,dunn.test.results = TRUE)
+        
+        #obrona 4.1
+        kwPlot(
+          x=dane[,i],
+          y=dane[,1],
+          strip = TRUE,
+          notch = TRUE,
+          omm = FALSE,
+          outl = TRUE,
+          posthoc = TRUE,
+          adjust = "bonferroni"
+          )
+        
+      }else{
+        cat(pvalueKruskal, ">0.05 - nie ma roznic miedzy grupami\n")
+      }
+    }
+   
+    } else {
+      if(length(group_names)== 2){
+        #######
+        if(rozklad_norm_zg && homo_zg== TRUE){
+          #test t-Studenta(dla gr niezaleznych)
+          print("test t.studenta")
+          print(t.test(eval(var) ~eval(var2), data = dane, var.equal =TRUE))
+        }
+        if(rozklad_norm_zg == TRUE && homo_zg == FALSE){
+          #test Welcha
+          print("test welcha")
+          print(t.test(eval(var) ~eval(var2), data = dane, var.equal =FALSE))
+        }
+        if(rozklad_norm_zg == FALSE){
+          #test Wilcoxona (manna whitneya)
+          print("test wilcoxona")
+          print(wilcox.test(eval(var) ~ eval(var2), data = dane))
+        }
+      }
+    }
+  }
+}
+dev.off()
+
+#4. Wykonanie analizy korelacji. Zaraportowanie pomiędzy którymi parametrami w obrębie jakich grup występują
+#istotne statystycznie korelacje oraz określenie siły i kierunku korelacji.
+pdf("C:/Users/Dell/Documents/rpis_michalkiewicz/podpunkt_4.pdf")
+
+dziele_dane <- split(dane, dane[1])
+for(int in dziele_dane){
+  cat("\n Dane dla grupy", int[1,1], "\n")
+  for(i in 1:(ncol(int)-1)){
+    if(is.numeric(int[ ,i])){
+      for(j in (i+1):ncol(int)){
+        if(is.numeric(int[ ,j])){
+          cat("parametry", colnames(int[i]), "  ", colnames(int[j]),"\n")
+          corelation_test <- cor.test(int[ ,i], int[ ,j], method = "pearson")
+          # cat("P-value:",corelation_test$p.value,"\n")
+          cat("Korelacja: ")
+          if(corelation_test$p.value > 0.05){
+            cat("Brak\n")
+          } else {
+            cat("Istnieje!\n")
+            cat("Wspó³czynnik korelacji:",corelation_test$estimate,"\n")
+            
+            cat("Kierunek: ")
+            if(corelation_test$estimate > 0){
+              cat("Korelacja dodatnia (gdy X roœnie to Y te¿ roœnie)\n")
+            } else if (corelation_test$estimate == 0){
+              cat("Brak jasnej korelacji (gdy X roœnie to Y czasem roœnie, czasem maleje)\n")
+            } else {
+              cat("Korelacja ujemna (gdy X roœnie to Y maleje)\n")
+            }
+           
+            cat("Sila: ")
+            if(-1 < corelation_test$estimate & corelation_test$estimate < -0.7){cat("Bardzo silna korelacja ujemna\n")}
+            else if(-0.7 < corelation_test$estimate & corelation_test$estimate < -0.5){cat("Silna korelacja ujemna\n")}
+            else if(-0.5 < corelation_test$estimate & corelation_test$estimate < -0.3){cat("Korelacja ujemna o srednim natezeniu\n")}
+            else if(-0.3 < corelation_test$estimate & corelation_test$estimate < -0.2){cat("Slaba korelacja ujemna\n")}
+            else if(-0.2 < corelation_test$estimate & corelation_test$estimate < 0.2){cat("Brak sily korelacji\n")}
+            else if(0.2 < corelation_test$estimate & corelation_test$estimate < 0.3){cat("Slaba korelacja dodatnia\n")}
+            else if(0.3 < corelation_test$estimate & corelation_test$estimate < 0.5){cat("Korelacja dodatnia o srednim natezeniu\n")}
+            else if(0.5 < corelation_test$estimate & corelation_test$estimate < 0.7){cat("Silna korelacja dodatnia\n")}
+            else{cat("Bardzo silna korelacja dodatnia\n")}
+            
+          }
+          
+            y<-ggscatter(int, x = colnames(int[i]), y = colnames(int[j]),
+                         add = "reg.line", conf.int = TRUE,
+                         cor.coef = TRUE, cor.method = "pearson",  #cor macierz korelacji dla wszystkich par kolumn
+                         color = colnames(int[1]), fill = colnames(int[1]),
+                         ylab = colnames(int[i]),
+                         xlab = colnames(int[j]))
+            print(y)
+          
+        }
+      }
+    }
+  }
+}
+dev.off()
+
+
+
+
+
